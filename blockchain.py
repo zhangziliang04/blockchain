@@ -10,13 +10,14 @@ from flask import Flask, jsonify, request
 
 class Blockchain:
     def __init__(self):
-        self.current_transactions = []
-        self.chain = []
-        self.nodes = set()
+        self.current_transactions = []      # 交易记录
+        self.chain = []                     # 区块链
+        self.nodes = set()                  # 节点
 
-        # Create the genesis block
+        # 创建创世区块：第一个区块
         self.new_block(previous_hash='1', proof=100)
 
+    # 注册节点
     def register_node(self, address):
         """
         Add a new node to the list of nodes
@@ -33,7 +34,7 @@ class Blockchain:
         else:
             raise ValueError('Invalid URL')
 
-
+    # 验证子链是否有效
     def valid_chain(self, chain):
         """
         Determine if a given blockchain is valid
@@ -42,7 +43,7 @@ class Blockchain:
         :return: True if valid, False if not
         """
 
-        last_block = chain[0]
+        last_block = chain[0]       # 创始区块
         current_index = 1
 
         while current_index < len(chain):
@@ -64,6 +65,7 @@ class Blockchain:
 
         return True
 
+    # 解决冲突
     def resolve_conflicts(self):
         """
         This is our consensus algorithm, it resolves conflicts
@@ -98,36 +100,39 @@ class Blockchain:
 
         return False
 
+    # 新建区块，并加入到链中，完成记账
     def new_block(self, proof, previous_hash):
         """
         Create a new Block in the Blockchain
 
-        :param proof: The proof given by the Proof of Work algorithm
-        :param previous_hash: Hash of previous Block
+        :param proof: The proof given by the Proof of Work algorithm        # 验证算法
+        :param previous_hash: Hash of previous Block                        # 上一个区块
         :return: New Block
         """
 
         block = {
             'index': len(self.chain) + 1,
             'timestamp': time(),
-            'transactions': self.current_transactions,
+            'transactions': self.current_transactions,      # 交易信息计入区块中
             'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
         }
 
+        # 清空交易池
         # Reset the current list of transactions
         self.current_transactions = []
-
+        # 区块入链
         self.chain.append(block)
         return block
 
+    # 新建交易：添加到交易池
     def new_transaction(self, sender, recipient, amount):
         """
         Creates a new transaction to go into the next mined Block
 
-        :param sender: Address of the Sender
-        :param recipient: Address of the Recipient
-        :param amount: Amount
+        :param sender: Address of the Sender         # 发送者地址
+        :param recipient: Address of the Recipient   # 接收者地址
+        :param amount: Amount                        # 金额
         :return: The index of the Block that will hold this transaction
         """
         self.current_transactions.append({
@@ -135,9 +140,10 @@ class Blockchain:
             'recipient': recipient,
             'amount': amount,
         })
-
+        # 最后一个区块索引值 + 1，预留给新增区块
         return self.last_block['index'] + 1
 
+    # 属性定义：最后一个区块
     @property
     def last_block(self):
         return self.chain[-1]
@@ -154,6 +160,7 @@ class Blockchain:
         block_string = json.dumps(block, sort_keys=True).encode()
         return hashlib.sha256(block_string).hexdigest()
 
+    # 工作量证明算法
     def proof_of_work(self, last_block):
         """
         Simple Proof of Work Algorithm:
@@ -165,8 +172,8 @@ class Blockchain:
         :return: <int>
         """
 
-        last_proof = last_block['proof']
-        last_hash = self.hash(last_block)
+        last_proof = last_block['proof']    # 最后一个区块的验证状态
+        last_hash = self.hash(last_block)   # 最后一个区块的
 
         proof = 0
         while self.valid_proof(last_proof, proof, last_hash) is False:
@@ -174,6 +181,7 @@ class Blockchain:
 
         return proof
 
+    # 判定验证是否有效
     @staticmethod
     def valid_proof(last_proof, proof, last_hash):
         """
@@ -201,23 +209,25 @@ node_identifier = str(uuid4()).replace('-', '')
 blockchain = Blockchain()
 
 
+# ----------------------------API-------------------------------------------
+# 矿机挖矿：接口
 @app.route('/mine', methods=['GET'])
 def mine():
     # We run the proof of work algorithm to get the next proof...
-    last_block = blockchain.last_block
-    proof = blockchain.proof_of_work(last_block)
-
+    last_block = blockchain.last_block                  # 最后一个区块（待验证区块）
+    proof = blockchain.proof_of_work(last_block)        # 工作量证明
+    # 新建交易：奖励金币交易
     # We must receive a reward for finding the proof.
     # The sender is "0" to signify that this node has mined a new coin.
     blockchain.new_transaction(
         sender="0",
-        recipient=node_identifier,
+        recipient=node_identifier,          # 交易的接收者是矿工
         amount=1,
     )
-
+    # 制作新的区块，并且加入到链中
     # Forge the new Block by adding it to the chain
-    previous_hash = blockchain.hash(last_block)
-    block = blockchain.new_block(proof, previous_hash)
+    previous_hash = blockchain.hash(last_block)         # 上一个区块
+    block = blockchain.new_block(proof, previous_hash)  # 新建区块并入链
 
     response = {
         'message': "New Block Forged",
@@ -229,6 +239,7 @@ def mine():
     return jsonify(response), 200
 
 
+# 新建交易接口
 @app.route('/transactions/new', methods=['POST'])
 def new_transaction():
     values = request.get_json()
@@ -238,13 +249,14 @@ def new_transaction():
     if not all(k in values for k in required):
         return 'Missing values', 400
 
-    # Create a new Transaction
+    # 创建一个新的交易：发送者、接收者、金额；加入未验证交易池
     index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
 
     response = {'message': f'Transaction will be added to Block {index}'}
     return jsonify(response), 201
 
 
+# 查看全部区块接口
 @app.route('/chain', methods=['GET'])
 def full_chain():
     response = {
@@ -254,6 +266,7 @@ def full_chain():
     return jsonify(response), 200
 
 
+# 注册节点：
 @app.route('/nodes/register', methods=['POST'])
 def register_nodes():
     values = request.get_json()
@@ -272,6 +285,7 @@ def register_nodes():
     return jsonify(response), 201
 
 
+# 共识：冲突解决
 @app.route('/nodes/resolve', methods=['GET'])
 def consensus():
     replaced = blockchain.resolve_conflicts()
@@ -290,6 +304,7 @@ def consensus():
     return jsonify(response), 200
 
 
+# 主函数
 if __name__ == '__main__':
     from argparse import ArgumentParser
 
@@ -298,4 +313,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     port = args.port
 
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='127.0.0.1', port=port)
